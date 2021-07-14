@@ -74,6 +74,11 @@ spec:
         - name: config
           configMap:
             name: {{ template "consul.fullname" . }}-server-config
+        {{- if .Values.global.publicNetwork.enabled }}
+        - name: nodes-config
+          configMap:
+            name: {{ template "consul.fullname" . }}-nodes-config
+        {{- end }}
         {{- if .Values.global.tls.enabled }}
         - name: consul-ca-cert
           secret:
@@ -158,6 +163,9 @@ spec:
             - "-ec"
             - |
               CONSUL_FULLNAME="{{template "consul.fullname" . }}"
+              {{- if .Values.global.publicNetwork.enabled }}
+              ADVERTISE_IP=$(jq -r '.server[]|select(.ip=="'${ADVERTISE_IP}'").advertise' /consul/nodes-config/nodes.json)
+              {{- end }}
 
               exec /bin/consul agent \
                 -advertise="${ADVERTISE_IP}" \
@@ -212,9 +220,15 @@ spec:
                 -ui \
                 {{- end }}
                 {{- $serverSerfLANPort  := .Values.server.ports.serflan.port -}}
-                {{- range $index := until (.Values.server.replicas | int) }}
+                  {{- if .Values.global.publicNetwork.enabled }}
+                    {{- range .Values.global.publicNetwork.nodes.server }}
+                -retry-join="{{ .advertise }}:{{ $serverSerfLANPort }}" \
+                    {{- end }}
+                  {{- else }}
+                    {{- range $index := until (.Values.server.replicas | int) }}
                 -retry-join="${CONSUL_FULLNAME}-server-{{ $index }}.${CONSUL_FULLNAME}-server.${NAMESPACE}.svc:{{ $serverSerfLANPort }}" \
-                {{- end }}
+                    {{- end }}
+                  {{- end }}
                 -serf-lan-port={{ .Values.server.ports.serflan.port }} \
                 -server
           volumeMounts:
@@ -222,6 +236,10 @@ spec:
               mountPath: /consul/data
             - name: config
               mountPath: /consul/config
+            {{- if .Values.global.publicNetwork.enabled }}
+            - name: nodes-config
+              mountPath: /consul/nodes-config
+            {{- end }}
             {{- if .Values.global.tls.enabled }}
             - name: consul-ca-cert
               mountPath: /consul/tls/ca/
@@ -239,45 +257,57 @@ spec:
             {{- if (or (not .Values.global.tls.enabled) (not .Values.global.tls.httpsOnly)) }}
             - name: http
               containerPort: 8500
+              {{- if .Values.server.hostNetwork }}
+              hostPort: 8500
+              {{- end }}
             {{- end }}
             {{- if .Values.global.tls.enabled }}
             - name: https
               containerPort: 8501
+              {{- if .Values.server.hostNetwork }}
+              hostPort: 8501
+              {{- end }}
             {{- end }}
             - name: serflan-tcp
               containerPort: {{ .Values.server.ports.serflan.port }}
-              {{- if .Values.server.exposeGossipAndRPCPorts }}
+              {{- if or .Values.server.exposeGossipAndRPCPorts .Values.server.hostNetwork }}
               hostPort: {{ .Values.server.ports.serflan.port }}
               {{- end }}
               protocol: "TCP"
             - name: serflan-udp
               containerPort: {{ .Values.server.ports.serflan.port }}
-              {{- if .Values.server.exposeGossipAndRPCPorts }}
+              {{- if or .Values.server.exposeGossipAndRPCPorts .Values.server.hostNetwork }}
               hostPort: {{ .Values.server.ports.serflan.port }}
               {{- end }}
               protocol: "UDP"
             - name: serfwan-tcp
               containerPort: 8302
-              {{- if .Values.server.exposeGossipAndRPCPorts }}
+              {{- if or .Values.server.exposeGossipAndRPCPorts .Values.server.hostNetwork }}
               hostPort: 8302
               {{- end }}
               protocol: "TCP"
             - name: serfwan-udp
               containerPort: 8302
-              {{- if .Values.server.exposeGossipAndRPCPorts }}
+              {{- if or .Values.server.exposeGossipAndRPCPorts .Values.server.hostNetwork }}
               hostPort: 8302
               {{- end }}
               protocol: "UDP"
             - name: server
               containerPort: 8300
-              {{- if .Values.server.exposeGossipAndRPCPorts }}
+              {{- if or .Values.server.exposeGossipAndRPCPorts .Values.server.hostNetwork }}
               hostPort: 8300
               {{- end }}
             - name: dns-tcp
               containerPort: 8600
+              {{- if .Values.server.hostNetwork }}
+              hostPort: 8600
+              {{- end }}
               protocol: "TCP"
             - name: dns-udp
               containerPort: 8600
+              {{- if .Values.server.hostNetwork }}
+              hostPort: 8600
+              {{- end }}
               protocol: "UDP"
           readinessProbe:
             # NOTE(mitchellh): when our HTTP status endpoints support the
@@ -311,6 +341,9 @@ spec:
       {{- if .Values.server.nodeSelector }}
       nodeSelector:
         {{ tpl .Values.server.nodeSelector . | indent 8 | trim }}
+      {{- end }}
+      {{- if .Values.server.hostNetwork }}
+      hostNetwork: {{ .Values.server.hostNetwork }}
       {{- end }}
   volumeClaimTemplates:
     - metadata:

@@ -86,6 +86,11 @@ spec:
         - name: config
           configMap:
             name: {{ template "consul.fullname" . }}-client-config
+        {{- if .Values.global.publicNetwork.enabled }}
+        - name: nodes-config
+          configMap:
+            name: {{ template "consul.fullname" . }}-nodes-config
+        {{- end }}
         {{- if .Values.global.tls.enabled }}
         - name: consul-ca-cert
           secret:
@@ -182,6 +187,9 @@ spec:
             - "-ec"
             - |
               CONSUL_FULLNAME="{{template "consul.fullname" . }}"
+              {{- if .Values.global.publicNetwork.enabled }}
+              ADVERTISE_IP=$(jq -r '.client[]|select(.ip=="'${ADVERTISE_IP}'").advertise' /consul/nodes-config/nodes.json)
+              {{- end }}
 
               exec /bin/consul agent \
                 -node="${NODE}" \
@@ -196,7 +204,11 @@ spec:
                 -hcl='ca_file = "/consul/tls/ca/tls.crt"' \
                 {{- if .Values.global.tls.enableAutoEncrypt }}
                 -hcl='auto_encrypt = {tls = true}' \
+                  {{- if .Values.global.publicNetwork.enabled }}
+                -hcl="auto_encrypt = {ip_san = [\"$ADVERTISE_IP\",\"$HOST_IP\",\"$POD_IP\"]}" \
+                  {{- else }}
                 -hcl="auto_encrypt = {ip_san = [\"$HOST_IP\",\"$POD_IP\"]}" \
+                  {{- end }}
                 {{- else }}
                 -hcl='cert_file = "/consul/tls/client/tls.crt"' \
                 -hcl='key_file = "/consul/tls/client/tls.key"' \
@@ -243,8 +255,14 @@ spec:
                 {{- else }}
                 {{- if .Values.server.enabled }}
                 {{- $serverSerfLANPort  := .Values.server.ports.serflan.port -}}
-                {{- range $index := until (.Values.server.replicas | int) }}
+                {{- if .Values.global.publicNetwork.enabled }}
+                  {{- range .Values.global.publicNetwork.nodes.server }}
+                -retry-join="{{ .advertise }}:{{ $serverSerfLANPort }}" \
+                  {{- end }}
+                {{- else }}
+                  {{- range $index := until (.Values.server.replicas | int) }}
                 -retry-join="${CONSUL_FULLNAME}-server-{{ $index }}.${CONSUL_FULLNAME}-server.${NAMESPACE}.svc:{{ $serverSerfLANPort }}" \
+                  {{- end }}
                 {{- end }}
                 {{- end }}
                 {{- end }}
@@ -254,6 +272,10 @@ spec:
               mountPath: /consul/data
             - name: config
               mountPath: /consul/config
+            {{- if .Values.global.publicNetwork.enabled }}
+            - name: nodes-config
+              mountPath: /consul/nodes-config
+            {{- end }}
             {{- if .Values.global.tls.enabled }}
             - name: consul-ca-cert
               mountPath: /consul/tls/ca

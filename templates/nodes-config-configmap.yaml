@@ -1,0 +1,17 @@
+{{ if .Values.global.publicNetwork.enabled }}
+apiVersion: v1
+data:
+  nodes.json: |-
+    {{ toJson .Values.global.publicNetwork.nodes }}
+
+kind: ConfigMap
+metadata:
+  name: {{ template "consul.fullname" . }}-nodes-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "consul.name" . }}
+    chart: {{ template "consul.chart" . }}
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+    component: nodes-config
+{{ end }}

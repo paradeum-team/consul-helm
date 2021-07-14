@@ -34,6 +34,21 @@ global:
   # @default: hashicorp/consul:<latest version>
   image: "hashicorp/consul:1.9.4"
 
+  # The public network config, To use the public network server and client hostNetwork must be true
+  publicNetwork:
+    # If true, the helm chart will be configured advertise_ip as public IP
+    enabled: false
+    nodes:
+      # server nodes configuration
+      server: []
+      # - ip: "172.26.181.236"
+      #    advertise: "x.x.x.x" # public ip
+
+      # client nodes configuration
+      client: []
+      # - ip: "172.26.181.240"
+      #    advertise: "x.x.x.x" # public ip
+
   # Array of objects containing image pull secret names that will be applied to each service account.
   # This can be used to reference image pull secrets if using a custom consul or consul-k8s Docker image.
   # See https://kubernetes.io/docs/concepts/containers/images/#using-a-private-registry for reference.
@@ -580,6 +595,9 @@ server:
   # it could be used to configure custom consul parameters.
   # @type: map
   extraEnvironmentVars: {}
+
+  # The server hostNetwork must be true to use the public network
+  hostNetwork: false
 
 # Configuration for Consul servers when the servers are running outside of Kubernetes.
 # When running external servers, configuring these values is recommended
